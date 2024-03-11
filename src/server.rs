@@ -1,10 +1,18 @@
 use anyhow;
-use esp_idf_svc::{eventloop, hal::prelude, http::server, nvs, wifi};
+use esp_idf_svc::{
+    eventloop, hal::prelude, http::server, http::Method, io::Write, nvs, sys, wifi, ws,
+};
 use log;
+use std::str;
 
 const SSID: &str = env!("WIFI_SSID");
 const PASSWORD: &str = env!("WIFI_PASS");
 const STACK_SIZE: usize = 10240;
+const MAX_LEN: usize = 8;
+
+static INDEX_HTML: &str = include_str!("../buzzer_frontend/dist/index.html");
+static INDEX_CSS: &str = include_str!("../buzzer_frontend/dist/assets/index.css");
+static INDEX_JS: &str = include_str!("../buzzer_frontend/dist/assets/index.js");
 
 pub fn create_server() -> anyhow::Result<server::EspHttpServer<'static>> {
     let peripherals = prelude::Peripherals::take()?;
@@ -41,4 +49,80 @@ pub fn create_server() -> anyhow::Result<server::EspHttpServer<'static>> {
     core::mem::forget(wifi);
 
     Ok(server::EspHttpServer::new(&server_configuration)?)
+}
+
+pub fn add_static_handlers(server: &mut server::EspHttpServer) -> anyhow::Result<()> {
+    server.fn_handler("/", Method::Get, |req| {
+        req.into_ok_response()?
+            .write_all(INDEX_HTML.as_bytes())
+            .map(|_| ())
+    })?;
+
+    server.fn_handler("/assets/index.css", Method::Get, |req| {
+        req.into_response(200, Some("OK"), &[("Content-Type", "text/css")])?
+            .write_all(INDEX_CSS.as_bytes())
+            .map(|_| ())
+    })?;
+
+    server.fn_handler(
+        "/assets/index.js",
+        Method::Get,
+        |req: server::Request<&mut server::EspHttpConnection<'_>>| {
+            req.into_response(200, Some("OK"), &[("Content-Type", "text/javascript")])?
+                .write_all(INDEX_JS.as_bytes())
+                .map(|_| ())
+        },
+    )?;
+
+    Ok(())
+}
+
+pub fn add_websocket<'a, C>(server: &mut server::EspHttpServer<'a>, callback: C) -> anyhow::Result<()>
+where
+    C: Fn(&str) + Send + Sync + 'a,
+{
+    server.ws_handler("/ws", move |ws_connection| {
+        match ws_connection {
+            server::ws::EspHttpWsConnection::New(_, _) => {
+                log::info!("New WebSocket session ({})", ws_connection.session());
+                return Ok::<(), sys::EspError>(());
+            }
+            server::ws::EspHttpWsConnection::Closed(_) => {
+                log::info!("Closed WebSocket session ({})", ws_connection.session());
+                return Ok::<(), sys::EspError>(());
+            }
+            server::ws::EspHttpWsConnection::Receiving(_, _, _) => {
+                log::info!(
+                    "Receiving at WebSocket session ({})",
+                    ws_connection.session()
+                );
+                let (_frame_type, len) = ws_connection.recv(&mut [])?;
+                if len > MAX_LEN {
+                    ws_connection.send(ws::FrameType::Text(false), "Request too big".as_bytes())?;
+                    ws_connection.send(ws::FrameType::Close, &[])?;
+                    return Err(sys::EspError::from_infallible::<
+                        { sys::ESP_ERR_INVALID_SIZE },
+                    >());
+                }
+                log::info!("WebSocket frame received with length {}.", len);
+
+                let mut buf = [0; MAX_LEN]; // Small digit buffer can go on the stack
+                ws_connection.recv(buf.as_mut())?;
+                let Ok(recived_message) = str::from_utf8(&buf[..len]) else {
+                    ws_connection.send(ws::FrameType::Text(false), "[UTF-8 Error]".as_bytes())?;
+                    return Ok(());
+                };
+                log::info!(
+                    "Received WebSocket text frame with content \"{}\".",
+                    recived_message
+                );
+
+                callback(&recived_message);
+
+                return Ok(());
+            }
+        }
+    })?;
+
+    Ok(())
 }
