@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex h-screen w-screen flex-wrap place-content-center gap-4 bg-neutral-200"
+    class="flex h-dvh w-screen flex-wrap place-content-center gap-4 bg-neutral-200"
   >
     <BuzzerButton
       @start-buzzing="console.log('start')"
