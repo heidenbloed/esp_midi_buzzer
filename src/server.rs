@@ -1,6 +1,10 @@
 use anyhow;
 use esp_idf_svc::{
-    eventloop, hal::prelude, http::server, http::Method, io::Write, nvs, sys, wifi, ws,
+    eventloop,
+    hal::modem,
+    http::{server, Method},
+    io::Write,
+    nvs, sys, wifi, ws,
 };
 use log;
 use std::str;
@@ -14,12 +18,11 @@ static INDEX_HTML: &str = include_str!("../buzzer_frontend/dist/index.html");
 static INDEX_CSS: &str = include_str!("../buzzer_frontend/dist/assets/index.css");
 static INDEX_JS: &str = include_str!("../buzzer_frontend/dist/assets/index.js");
 
-pub fn create_server() -> anyhow::Result<server::EspHttpServer<'static>> {
-    let peripherals = prelude::Peripherals::take()?;
+pub fn create_server(modem: modem::Modem) -> anyhow::Result<server::EspHttpServer<'static>> {
     let sys_loop = eventloop::EspSystemEventLoop::take()?;
     let nvs = nvs::EspDefaultNvsPartition::take()?;
 
-    let wifi_driver = wifi::EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?;
+    let wifi_driver = wifi::EspWifi::new(modem, sys_loop.clone(), Some(nvs))?;
     let mut wifi = wifi::BlockingWifi::wrap(wifi_driver, sys_loop)?;
 
     let wifi_configuration = wifi::Configuration::Client(wifi::ClientConfiguration {
@@ -77,7 +80,10 @@ pub fn add_static_handlers(server: &mut server::EspHttpServer) -> anyhow::Result
     Ok(())
 }
 
-pub fn add_websocket<'a, C>(server: &mut server::EspHttpServer<'a>, callback: C) -> anyhow::Result<()>
+pub fn add_websocket<'a, C>(
+    server: &mut server::EspHttpServer<'a>,
+    callback: C,
+) -> anyhow::Result<()>
 where
     C: Fn(&str) + Send + Sync + 'a,
 {
