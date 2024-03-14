@@ -10,6 +10,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  WIFI_SSID: fake-ssid
+  WIFI_PASS: fake-pass
 
 jobs:
   rust-checks:
@@ -28,6 +30,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Build frontend
+        run: cd buzzer_frontend && npm ci && npm run build
       - name: Setup Rust
         uses: esp-rs/xtensa-toolchain@v1.5
         with:

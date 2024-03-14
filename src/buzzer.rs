@@ -1,4 +1,3 @@
-use anyhow;
 pub use core::time::Duration;
 use esp_idf_svc::hal::{
     gpio,
