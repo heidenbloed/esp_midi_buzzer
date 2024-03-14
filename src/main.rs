@@ -1,6 +1,6 @@
+use core::time;
 use esp_idf_svc::{hal::prelude, timer};
 use std::sync::{Arc, Mutex};
-use core::time;
 
 mod buzzer;
 mod server;
@@ -24,8 +24,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut buzzer = buzzer::Buzzer::new(peripherals.pins, peripherals.rmt)?;
     let timer_service = timer::EspTaskTimerService::new()?;
-    let timer = timer_service.timer(move || {
-        log::info!("Timer triggered");
+    let callback_timer = timer_service.timer(move || {
         if *buzzing_active
             .lock()
             .expect("Could not lock buzzing_active.")
@@ -35,7 +34,8 @@ fn main() -> anyhow::Result<()> {
                 .expect("Could not play note.");
         }
     })?;
-    timer.every(time::Duration::from_secs(1))?;
+    callback_timer.every(time::Duration::from_millis(10))?;
+    core::mem::forget(callback_timer);
 
     Ok(())
 }
